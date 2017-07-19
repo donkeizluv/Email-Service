@@ -177,6 +177,7 @@ namespace AnEmailService
                 Log(string.Format("Reading details: {0}", GetFileNameFromUrl(detailsFilename)));
                 CsvToArray.ReadCsv(detailsFilename, Delimiter, out string[] detailHeader, out List<string[]> detailContent);
                 Log(string.Format("Rows: {0}", detailContent.Count));
+                PrintLine();
                 //get indexes
                 int summaryGroupIndex = Array.FindIndex(summaryHeader, (s => string.Compare(SummaryColumnToGroup, s, true) == 0));
                 if (summaryGroupIndex == -1) throw new InvalidDataException($"Summary file doesnt contain column: {SummaryColumnToGroup}");
@@ -186,45 +187,70 @@ namespace AnEmailService
                 var detailContentMapDict = Helper.MapRow(detailHeader, DetailsColumnToGroup, detailContent);
                 foreach (var summaryRow in summaryMapDict)
                 {
-                    //Mapping now takes empty rows to send to BL specific address
-                    //so check here
-                    if (string.IsNullOrEmpty(summaryRow.Value.Group)) continue;
-
+                    string emailAddress = summaryRow.Key;
+                    bool isOrphaned = false;
+                    if (string.IsNullOrEmpty(emailAddress))
+                    {
+                        //if EmptyEmailReceiver is set -> send
+                        if (string.IsNullOrEmpty(EmptyEmailReceiver))
+                        {
+                            //skip empty rows, summary, details
+                            Log("No EmptyEmailReceiver set -> skip empty summary rows");
+                            continue;
+                        }
+                        emailAddress = EmptyEmailReceiver;
+                        isOrphaned = true;
+                        Log($"Orphan summary rows ->{EmptyEmailReceiver}");
+                    }
+                    //compose email
+                    //summary
                     MailMessage mail;
-                    string emailAddress = summaryRow.Value.Group;
                     if(SummaryAsCSV)
                     {
+                        //create empty email
                         mail = CreateEmail();
                         Log($"Making CSV summary for: {emailAddress}");
-
+                        var csvBodyContent = summaryRow.Value.GetContentArray();
+                        Log($"Total rows: {csvBodyContent.Count}");
+                        string csvName = string.Format("{0}_summary{1}.csv", StripEmail(emailAddress), isOrphaned? "-orphaned" : string.Empty);
+                        string fullFilename = string.Format("{0}\\{1}", TempCSVFolder, csvName);
+                        if (!WriteCSV(fullFilename, detailHeader, csvBodyContent))
+                        {
+                            Log($"Fail to make csv summary for {emailAddress}");
+                            //continue; //??? should i?
+                        }
+                        else
+                        {
+                            AddAttachment(fullFilename, mail);
+                        }
                     }
                     else
                     {
+                        //create email with content in body
                         mail = CreateEmail(summaryHeader, summaryRow.Value.GetContentArray());
                     }
-                    
-
+                    //details
                     //write CSV
-                    //CSV content
+                    if (isOrphaned)
+                        Log("Orphaned details:");
                     Log($"Making CSV detail for: {emailAddress}");
-                    if (detailContentMapDict.ContainsKey(emailAddress))
+                    if (detailContentMapDict.ContainsKey(summaryRow.Key))
                     {
-                        var csvContent = detailContentMapDict[emailAddress].GetContentArray();
-                        if (csvContent.Count > 0)
+                        var csvContent = detailContentMapDict[summaryRow.Key].GetContentArray();
+                        Log($"Email: {emailAddress} has {csvContent.Count} rows for detail.");
+                        string csvName = string.Format("{0}_details.csv", StripEmail(emailAddress));
+                        string fullFilename = string.Format("{0}\\{1}", TempCSVFolder, csvName);
+                        if (!WriteCSV(fullFilename, detailHeader, csvContent))
                         {
-                            Log($"Email: {emailAddress} has {csvContent.Count} rows for detail.");
-                            string csvName = string.Format("{0}_details.csv", StripEmail(emailAddress));
-                            string fullFilename = string.Format("{0}\\{1}", TempCSVFolder, csvName);
-                            if (!WriteCSV(fullFilename, detailHeader, csvContent))
-                            {
-                                Log($"Fail to make csv for {emailAddress}");
-                                //continue; //??? should i?
-                            }
-                            else
-                            {
-                                AddAttachment(fullFilename, mail);
-                            }
+                            Log($"Fail to make csv for {emailAddress}");
+                            //continue; //??? should i?
                         }
+                        else
+                        {
+                            AddAttachment(fullFilename, mail);
+                        }
+                        if (isOrphaned) //remove orphaned details in dict
+                            detailContentMapDict.Remove(string.Empty);
                     }
                     else
                     {
@@ -233,7 +259,36 @@ namespace AnEmailService
                     //add recipient
                     AddRecipient(mail, emailAddress);
                     emails.Add(mail);
+                    PrintLine();
                 }
+                //in case no orphaned summary but details do
+                if (detailContentMapDict.ContainsKey(string.Empty))
+                {
+                    if(!string.IsNullOrEmpty(EmptyEmailReceiver))
+                    {
+                        var mail = new MailMessage();
+                        var csvContent = detailContentMapDict[string.Empty].GetContentArray();
+                        Log($"Orphan details rows ->{EmptyEmailReceiver}");
+                        Log($"Email: {EmptyEmailReceiver} has {csvContent.Count} rows for detail.");
+                        string csvName = string.Format("{0}_details-orphaned.csv", StripEmail(EmptyEmailReceiver));
+                        string fullFilename = string.Format("{0}\\{1}", TempCSVFolder, csvName);
+                        if (!WriteCSV(fullFilename, detailHeader, csvContent))
+                        {
+                            Log($"Fail to make csv for {EmptyEmailReceiver}");
+                            //continue; //??? should i?
+                        }
+                        else
+                        {
+                            AddAttachment(fullFilename, mail);
+                        }
+                        emails.Add(mail);
+                    }
+                    else
+                    {
+                        Log("No EmptyEmailReceiver set -> skip empty details rows");
+                    }
+                }
+
                 return emails;
             }
             catch (UnauthorizedAccessException ex)

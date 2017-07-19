@@ -85,7 +85,7 @@ namespace AnEmailService
             => SuffixCorrection ? (address.Contains("@") ? address : address + DefaultSuffix) : address;
 
         private static void Log(string log) => Logger.Log(log);
-
+        private static void PrintLine() => Log("----------------------------------------------");
         //this seems ugly af :/
         private static string GetFileNameFromUrl(string url)
         {
