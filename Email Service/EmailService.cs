@@ -214,7 +214,7 @@ namespace AnEmailService
                         Log($"Total rows: {csvBodyContent.Count}");
                         string csvName = string.Format("{0}_summary{1}.csv", StripEmail(emailAddress), isOrphaned? "-orphaned" : string.Empty);
                         string fullFilename = string.Format("{0}\\{1}", TempCSVFolder, csvName);
-                        if (!WriteCSV(fullFilename, detailHeader, csvBodyContent))
+                        if (!WriteCSV(fullFilename, summaryHeader, csvBodyContent))
                         {
                             Log($"Fail to make csv summary for {emailAddress}");
                             //continue; //??? should i?
